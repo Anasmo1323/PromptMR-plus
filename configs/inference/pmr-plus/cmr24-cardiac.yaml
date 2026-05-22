@@ -2,30 +2,31 @@ data:
   class_path: pl_modules.InferenceDataModule
   init_args:
     slice_dataset: data.CmrxReconInferenceSliceDataset
-    data_path: /gpfs/home/bingyx01/mridatasets/cmrxrecon2024/validationset/undersample
-    challenge: multicoil
+    data_path: /data/ChallengeData/MultiCoil/Cine/TrainingSet/FullSample/
+    challenge: MultiCoil
     test_transform:
       class_path: data.CmrxReconDataTransform
       init_args:
         mask_func: null
         uniform_resolution: null
         use_seed: true
-        mask_type: 'cartesian_or_radial'
-        test_num_low_frequencies: 16
+        mask_type: 'kt_uniform'
+        test_num_low_frequencies: 20
     num_adj_slices: 5
     batch_size: 1
     distributed_sampler: true 
+    mask_acc: 8
     test_filter: 
       class_path: data.FuncFilterString
       init_args:
-        filter_str: null #Mapping/ValidationSet/UnderSample_Task1/P001/
+        filter_str: "Center005/Siemens_30T_Vida/P001/cine_lax.mat"
 
 # dataset specific settings
 seed_everything: 42
 trainer:
   accelerator: gpu
   strategy: ddp
-  devices: 4
+  devices: 1
   num_nodes: 1
   logger: false
   callbacks:
@@ -34,7 +35,7 @@ trainer:
       init_args:
         output_dir: _predict/cmr24-cardiac/test_plus
         write_interval: batch_and_epoch
+
 model:
-  class_path: pl_modules.PromptMrModule
 
 ckpt_path: weights/cmr24-cardiac/promptmr-plus-epoch=11-step=337764.ckpt

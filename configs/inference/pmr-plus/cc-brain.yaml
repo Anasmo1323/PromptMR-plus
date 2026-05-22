@@ -35,6 +35,5 @@ trainer:
         output_dir: _predict/cc-brain/test10-plus
         write_interval: batch_and_epoch
 model:
-  class_path: pl_modules.PromptMrModule
 
 ckpt_path: weights/cc-brain/promptmr-plus-epoch=19-step=120320.ckpt

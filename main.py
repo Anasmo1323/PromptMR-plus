@@ -11,12 +11,14 @@ from collections import defaultdict
 
 import yaml
 import torch
+torch.set_float32_matmul_precision('high')
 import numpy as np
 from lightning.pytorch.cli import LightningCLI, SaveConfigCallback
 from lightning.pytorch.callbacks import BasePredictionWriter, Callback
 from lightning.pytorch.utilities.rank_zero import rank_zero_only
 
 from mri_utils import save_reconstructions
+from pl_modules import PromptMrModule
 
 @rank_zero_only
 def print_on_rank0(*args, **kwargs):
@@ -31,7 +33,7 @@ def preprocess_save_dir():
                         type=str, help="Logger save directory")
     args, _ = parser.parse_known_args(sys.argv[1:])
 
-    save_dir = None  # Default to None
+    save_dir = r"C:\CardiacCreed\Models\PromptMR-plus\weights"  # Default to None
 
     if args.config:
         for config_path in args.config:
@@ -273,6 +275,7 @@ def run_cli():
     preprocess_save_dir()
 
     cli = CustomLightningCLI(
+        model_class=PromptMrModule,
         save_config_callback=CustomSaveConfigCallback,
         save_config_kwargs={"overwrite": True},
     )

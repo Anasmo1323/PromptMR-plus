@@ -357,10 +357,18 @@ class CmrxReconDataTransform:
             mask_torch = to_tensor(mask)
             mask_torch[:, :, :acq_start] = 0
             mask_torch[:, :, acq_end:] = 0
-            if 'ktRadial' in fname:
+            if self.mask_type is not None and self.mask_type != 'cartesian_or_radial':
+                mask_type = self.mask_type
+            elif 'ktRadial' in fname:
                 mask_type = 'kt_radial'
+            elif 'Uniform' in fname or 'ktUniform' in fname:
+                mask_type = 'kt_uniform'
+            elif 'Gaussian' in fname or 'ktGaussian' in fname:
+                mask_type = 'kt_gaussian'
             else:
                 mask_type = 'cartesian'
+            # ---------------------------------
+            
             num_low_frequencies = self.num_low_frequencies
             
         sample = PromptMRSample(

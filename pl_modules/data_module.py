@@ -300,6 +300,7 @@ class InferenceDataModule(L.LightningDataModule):
         num_workers: int = 4,
         distributed_sampler: bool = False,
         num_adj_slices: int = 5,
+        mask_acc: Optional[int] = None,
     ):
         super().__init__()
 
@@ -308,6 +309,7 @@ class InferenceDataModule(L.LightningDataModule):
         self.challenge = challenge
         self.test_transform = test_transform
         self.test_filter = test_filter
+        self.mask_acc = mask_acc
 
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -328,6 +330,7 @@ class InferenceDataModule(L.LightningDataModule):
             transform=data_transform,
             challenge=self.challenge,
             raw_sample_filter=raw_sample_filter,
+            mask_acc=self.mask_acc,
             num_adj_slices = self.num_adj_slices
         )
 

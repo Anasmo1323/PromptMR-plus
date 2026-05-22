@@ -2,7 +2,9 @@ data:
   class_path: pl_modules.InferenceDataModule
   init_args:
     slice_dataset: data.CmrxReconInferenceSliceDataset
-    data_path: /gpfs/home/bingyx01/mridatasets/cmrxrecon2023/validationset/undersample
+    # 1. Change D:/ to /mnt/d/
+    data_path: /media/sbme26-600k/bitlocker_mount/CardiacCreed/cmrxrecon2023/ChallengeData/MultiCoil/Cine/TrainingSet/Subset30Acc8Acc10
+
     challenge: multicoil
     test_transform:
       class_path: data.CmrxReconDataTransform
@@ -14,26 +16,25 @@ data:
     num_adj_slices: &n_adj_slc 5
     batch_size: 1
     distributed_sampler: true 
-    test_filter: 
+    test_filter:
       class_path: data.FuncFilterString
       init_args:
-        filter_str: null #Cine/AccFactor10/P001/cine_lax.mat
-
+        # 2. Use a unique substring rather than the absolute path
+        filter_str: "AccFactor08"
 # dataset specific settings
 seed_everything: 42
 trainer:
   accelerator: gpu
   strategy: ddp
-  devices: 4
+  devices: 1
   num_nodes: 1
   logger: false
   callbacks:
     -
       class_path: __main__.CustomWriter
       init_args:
-        output_dir: _predict/cmrxrecon23/test-plus
+        output_dir: /media/sbme26-600k/bitlocker_mount/CardiacCreed/ReconstructionOutput/PromptMRPlusCMR23Test
         write_interval: batch_and_epoch
-model:
-  class_path: pl_modules.PromptMrModule
+# model:
 
-ckpt_path: weights/cmr23-cardiac/promptmr-plus-epoch=11-step=258576.ckpt
+ckpt_path: weights/cmr24-cardiac/promptmr-plus-epoch=11-step=337764.ckpt

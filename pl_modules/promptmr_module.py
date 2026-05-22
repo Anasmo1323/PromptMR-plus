@@ -53,6 +53,8 @@ class PromptMrModule(MriModule):
         weight_decay: float = 0.01,
         use_checkpoint: bool = False,
         compute_sens_per_coil: bool = False,
+        num_log_images: int = 16,
+        gamma: float = 0.5,
         **kwargs,
     ):
         """
@@ -88,7 +90,7 @@ class PromptMrModule(MriModule):
             use_checkpoint: Whether to use checkpointing to trade compute for GPU memory.
             compute_sens_per_coil: (bool) whether to compute sensitivity maps per coil for memory saving
         """
-        super().__init__(**kwargs)
+        super().__init__(num_log_images=num_log_images, gamma=gamma, **kwargs)
         self.save_hyperparameters()
 
         self.num_cascades = num_cascades

@@ -416,27 +416,39 @@ class CmrxReconInferenceSliceDataset(torch.utils.data.Dataset):
         challenge: str,
         raw_sample_filter: Optional[Callable] = None,
         transform: Optional[Callable] = None,
+        mask_acc: Optional[int] = None,
         num_adj_slices: int = 5
     ):
-        self.root = root
+        self.root = Path(root)
         # get all the kspace mat files from root, under folder or its subfolders
-        volume_paths = root.glob('**/*.mat')
+        volume_paths = self.root.glob('**/*.mat')
 
-        if '2023' in str(self.root):
-            self.year = 2023 
-        elif '2024' in str(self.root):
+        root_str = str(self.root)
+        if '2025' in root_str:
+            self.year = 2025
+        elif '2024' in root_str:
             self.year = 2024
+        elif '2023' in root_str:
+            self.year = 2023
+        elif 'FullSample' in root_str:
+            self.year = 2025
         else:
-            raise ValueError('Invalid dataset root')
-        #
+            self.year = 2023
+
         if self.year == 2023:
             # filter out files contains '_mask.mat'
             self.volume_paths = [str(path) for path in volume_paths if '_mask.mat' not in str(path)]
-            
-        elif self.year == 2024:
+        elif self.year in (2024, 2025):
             self.volume_paths = [str(path) for path in volume_paths if '_mask_' not in str(path)]
-        
-        self.volume_paths = [pp for pp in self.volume_paths if raw_sample_filter(pp)]
+        else:
+            self.volume_paths = [str(path) for path in volume_paths if '_mask_' not in str(path)]
+
+        if mask_acc is not None and mask_acc not in (8, 16, 24):
+            raise ValueError('mask_acc must be one of [8, 16, 24]')
+        self.mask_acc = mask_acc
+
+        if raw_sample_filter is not None:
+            self.volume_paths = [pp for pp in self.volume_paths if raw_sample_filter(pp)]
         print('number of inference paths: ', len(self.volume_paths))
             
 
@@ -486,9 +498,13 @@ class CmrxReconInferenceSliceDataset(torch.utils.data.Dataset):
         self.len_dataset = global_idx  # Update dataset length
         
     def _get_volume_shape_info(self):
-        shape_dict = {} #defaultdict(dict)
-        for path in self.volume_paths:
-            shape_dict[path]=load_shape(path)
+        shape_dict = {}
+        for i, path in enumerate(self.volume_paths):
+            try:
+                shape_dict[path] = load_shape(path)
+            except Exception as e:
+                print(f'Warning: Could not load shape for {path}: {e}')
+        print(f'Loaded shapes for {len(shape_dict)} / {len(self.volume_paths)} volumes')
         return shape_dict
  
     def _get_ti_adj_idx_list(self, ti, num_t_in_volume):
@@ -513,19 +529,53 @@ class CmrxReconInferenceSliceDataset(torch.utils.data.Dataset):
         kspace_volume = kspace_volume[None] if len(kspace_volume.shape) != 5 else kspace_volume # blackblood has no time dimension
         kspace_volume = kspace_volume.transpose(0, 1, 2, 4, 3)
         
-        if self.year==2023:
+        if self.year == 2023:
             mask_path = path.replace('.mat', '_mask.mat')
             mask = load_mask(mask_path).T[0:1]
-            mask=mask[None,:,:,None]
-        elif self.year==2024:
+            mask = mask[None, :, :, None]
+        elif self.year == 2024:
             mask_path = path.replace('UnderSample_Task', 'Mask_Task').replace('_kus_', '_mask_')
             if 'UnderSample_Task1' in path:
                 mask = load_mask(mask_path).T[0:1]
-                mask=mask[None,:,:,None]
+                mask = mask[None, :, :, None]
             else:
-                mask = load_mask(mask_path).transpose(0,2,1)
-                mask=mask[:,:,:,None]
+                mask = load_mask(mask_path).transpose(0, 2, 1)
+                mask = mask[:, :, :, None]
+        elif self.year == 2025:
+            mask_path = path.replace('/FullSample/', '/Mask_TaskAll/')
+            if self.mask_acc is not None:
+                mask_path = mask_path.replace('.mat', f'_mask_Uniform{self.mask_acc}.mat')
+            else:
+                mask_dir = os.path.dirname(mask_path)
+                base_name = os.path.splitext(os.path.basename(mask_path))[0]
+                candidates = sorted(
+                    [
+                        str(p)
+                        for p in Path(mask_dir).glob(base_name + '_mask_Uniform*.mat')
+                    ]
+                )
+                if len(candidates) == 1:
+                    mask_path = candidates[0]
+                elif len(candidates) == 0:
+                    raise FileNotFoundError(
+                        f'No Uniform mask found for sample {path} in {mask_dir}'
+                    )
+                else:
+                    raise ValueError(
+                        f'Multiple Uniform masks found for sample {path}. '
+                        'Set mask_acc to 8, 16, or 24.'
+                    )
+            mask = load_mask(mask_path).transpose(0, 2, 1)
+            mask = mask[:, :, :, None]
+        else:
+            raise ValueError(f'Unsupported year: {self.year}')
+# --- ADD THESE LOGGING LINES ---
+        print(f"\n[LOADER] K-Space Data: {path}")
+        print(f"[LOADER] Applied Mask: {mask_path}")
+        # -------------------------------
 
+        kspace_volume = kspace_volume.astype(np.complex64)
+        mask = mask.astype(np.float32)
         attrs = {
             'encoding_size': [kspace_volume.shape[3], kspace_volume.shape[4], 1],
             'padding_left': 0,

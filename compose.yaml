@@ -1,0 +1,19 @@
+services:
+  pmr-plus:
+    image: pmr-plus-env
+    container_name: pmr_reconstruction
+    # Keeps the container running in the background and allows terminal access (-it)
+    stdin_open: true
+    tty: true
+    # Maps your physical drives to the internal container paths
+    volumes:
+      - "/media/sbme26-600k/Seagate Backup Plus Drive/CardiacCreed/Models/PromptMR-plus:/app"
+      - "/media/sbme26-600k/bitlocker_mount/CardiacCreed/cmrxrecon2025:/data"
+    # Enables the NVIDIA Container Toolkit for the RTX 5090 (--gpus all)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

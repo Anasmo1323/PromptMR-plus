@@ -38,6 +38,5 @@ trainer:
         output_dir: _predict/fastmri-knee/test-plus
         write_interval: batch_and_epoch
 model:
-  class_path: pl_modules.PromptMrModule
 
 ckpt_path: weights/fm-knee/promptmr-plus-epoch=44-step=781695.ckpt
