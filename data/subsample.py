@@ -798,3 +798,222 @@ class CmrxRecon24TestValMaskFunc(CmrxRecon24MaskFunc):
 
         self.num_adj_slices = num_adj_slices
         self.start_adj, self.end_adj = -(num_adj_slices//2), num_adj_slices//2+1
+
+
+class CmrxRecon25MaskFunc(MaskFunc):
+    """
+    On-the-fly kt_uniform mask generation for CMRxRecon 2025 dataset.
+    
+    This class generates mathematically perfect kt_uniform masks dynamically
+    for acceleration factors 8, 16, and 24 with fixed 20 calibration lines.
+    Used when pre-computed masks are not available (FullSample_TaskR1 dataset).
+    """
+    def __init__(
+        self,
+        num_low_frequencies: int = 20,
+        accelerations: Sequence[int] = (8, 16, 24),
+        num_adj_slices: int = 5,
+        seed: Optional[int] = None,
+        mask_acc: Optional[int] = None
+    ):
+        """
+        Args:
+            num_low_frequencies: Number of low-frequency (calibration) lines. Default: 20
+            accelerations: List of acceleration factors to support. Default: (8, 16, 24)
+            num_adj_slices: Number of adjacent temporal slices for kt sampling. Default: 5
+            seed: Seed for random number generator for reproducibility.
+            mask_acc: Specific acceleration factor to use (8, 16, or 24). If None, uses first in accelerations list.
+        """
+        self.num_low_frequencies = num_low_frequencies
+        self.accelerations = accelerations
+        self.num_adj_slices = num_adj_slices
+        self.start_adj, self.end_adj = -(num_adj_slices // 2), num_adj_slices // 2 + 1
+        self.rng = np.random.RandomState(seed)
+        # Use mask_acc if provided, otherwise default to first acceleration
+        if mask_acc is not None:
+            if mask_acc not in accelerations:
+                raise ValueError(f"mask_acc ({mask_acc}) must be one of accelerations {accelerations}")
+            self.mask_acc = mask_acc
+        else:
+            self.mask_acc = accelerations[0]
+        
+    def __call__(
+        self,
+        shape: Sequence[int],
+        offset: Optional[int] = None,
+        seed: Optional[Union[int, Tuple[int, ...]]] = None,
+        slice_idx: Optional[int] = None,
+        num_t: Optional[int] = None,
+        num_slc: Optional[int] = None,
+        acc_factor: Optional[int] = None
+    ) -> Tuple[torch.Tensor, int]:
+        """
+        Generate and return a kt_uniform k-space mask.
+        
+        Args:
+            shape: Shape of k-space (num_coils, num_temporal, num_slices, height, width, 2)
+            offset: Offset from 0 to begin mask (for equispaced masks)
+            seed: Seed for random number generator for reproducibility
+            slice_idx: Index of the current slice in the volume
+            num_t: Number of temporal frames in the volume
+            num_slc: Number of slices in the volume
+            acc_factor: Acceleration factor (8, 16, or 24). If None, uses self.accelerations[0]
+            
+        Returns:
+            A tuple containing:
+                - The k-space mask (torch.Tensor)
+                - The number of center frequency lines (int)
+        """
+        if len(shape) < 3:
+            raise ValueError("Shape should have 3 or more dimensions")
+        
+        # Use provided acc_factor, mask_acc attribute, or default to first in list
+        if acc_factor is None:
+            acc_factor = getattr(self, 'mask_acc', None)
+        if acc_factor is None:
+            acc_factor = self.accelerations[0]
+        
+        with temp_seed(self.rng, seed):
+            mask, num_low_frequencies = self.sample_kt_uniform_mask(
+                shape, offset, slice_idx, num_t, num_slc, acc_factor
+            )
+        
+        return mask, num_low_frequencies
+    
+    def sample_kt_uniform_mask(
+        self,
+        shape: Sequence[int],
+        offset: Optional[int],
+        slice_idx: Optional[int],
+        num_t: Optional[int],
+        num_slc: Optional[int],
+        acc_factor: int
+    ) -> Tuple[torch.Tensor, int]:
+        """
+        Generate kt_uniform mask with circular temporal adjacency.
+        
+        Args:
+            shape: Shape of k-space
+            offset: Offset for equispaced sampling (default: 0)
+            slice_idx: Current slice index
+            num_t: Number of temporal frames
+            num_slc: Number of slices
+            acc_factor: Acceleration factor
+            
+        Returns:
+            Tuple of (mask tensor, number of low frequencies)
+        """
+        num_cols = shape[-2]
+        num_low_frequencies = self.num_low_frequencies
+        
+        if offset is None:
+            offset = 0
+        
+        # Determine temporal indices for adjacent slices
+        if slice_idx is not None and num_t is not None and num_slc is not None:
+            ti = slice_idx // num_slc
+            select_list = self._get_ti_adj_idx_list(ti, num_t)
+        else:
+            # Fallback: use all indices sequentially
+            select_list = list(range(num_t if num_t else 1))
+        
+        # Generate mask for each temporal frame
+        masks = []
+        for _offset in select_list:
+            # Create center mask (calibration lines)
+            center_mask = self.reshape_mask(
+                self.calculate_center_mask(shape, num_low_frequencies), shape
+            )
+            
+            # Create equispaced acceleration mask
+            acceleration_mask = self.reshape_mask(
+                self.calculate_acceleration_mask(
+                    num_cols, acc_factor, _offset % acc_factor, num_low_frequencies
+                ),
+                shape,
+            )
+            
+            # Combine masks
+            masks.append(torch.max(center_mask, acceleration_mask))
+        
+        mask = torch.cat(masks, dim=0)
+        return mask, num_low_frequencies
+    
+    def calculate_acceleration_mask(
+        self,
+        num_cols: int,
+        acceleration: int,
+        offset: Optional[int],
+        num_low_frequencies: int,
+    ) -> np.ndarray:
+        """
+        Produce mask for non-central acceleration lines (equispaced).
+        
+        Args:
+            num_cols: Number of columns of k-space
+            acceleration: Desired acceleration rate
+            offset: Offset from 0 to begin masking
+            num_low_frequencies: Number of low-frequency lines (not used here)
+            
+        Returns:
+            A mask for the high spatial frequencies of k-space
+        """
+        if offset is None:
+            offset = 0
+        
+        mask = np.zeros(num_cols, dtype=np.float32)
+        mask[offset::acceleration] = 1
+        
+        return mask
+    
+    def calculate_center_mask(
+        self, shape: Sequence[int], num_low_freqs: int
+    ) -> np.ndarray:
+        """
+        Build center mask based on number of low frequencies.
+        
+        Args:
+            shape: Shape of k-space to mask
+            num_low_freqs: Number of low-frequency lines to sample
+            
+        Returns:
+            A mask for the low spatial frequencies of k-space
+        """
+        num_cols = shape[-2]
+        mask = np.zeros(num_cols, dtype=np.float32)
+        pad = (num_cols - num_low_freqs + 1) // 2
+        mask[pad: pad + num_low_freqs] = 1
+        assert mask.sum() == num_low_freqs
+        
+        return mask
+    
+    def reshape_mask(self, mask: np.ndarray, shape: Sequence[int]) -> torch.Tensor:
+        """Reshape mask to desired output shape."""
+        num_cols = shape[-2]
+        mask_shape = [1 for _ in shape]
+        mask_shape[-2] = num_cols
+        
+        return torch.from_numpy(mask.reshape(*mask_shape).astype(np.float32))
+    
+    def _get_ti_adj_idx_list(self, ti: int, num_t_in_volume: int) -> list:
+        """
+        Get circular adjacent indices for temporal axis.
+        
+        Args:
+            ti: Current temporal index
+            num_t_in_volume: Total number of temporal frames
+            
+        Returns:
+            List of temporal indices including adjacent frames
+        """
+        start_lim, end_lim = -(num_t_in_volume // 2), (num_t_in_volume // 2 + 1)
+        start, end = max(self.start_adj, start_lim), min(self.end_adj, end_lim)
+        
+        # Generate initial list of indices
+        ti_idx_list = [(i + ti) % num_t_in_volume for i in range(start, end)]
+        
+        # Duplicate padding if necessary
+        replication_prefix = max(start_lim - self.start_adj, 0) * ti_idx_list[0:1]
+        replication_suffix = max(self.end_adj - end_lim, 0) * ti_idx_list[-1:]
+        
+        return replication_prefix + ti_idx_list + replication_suffix
