@@ -1,0 +1,54 @@
+# CMRxRecon 2025 Inference Configuration for PromptMR+
+# Uses on-the-fly kt_uniform mask generation for FullSample_TaskR1 dataset
+
+data:
+  class_path: pl_modules.InferenceDataModule
+  init_args:
+    slice_dataset: data.CmrxReconInferenceSliceDataset
+    data_path: /media/sbme26-600k/bitlocker_mount/CardiacCreed/cmrxrecon2025/ValidationTestDataTaskR1/TaskR1_Data/TaskR1/MultiCoil/Cine/ValidationSet/FullSample_TaskR1
+    challenge: MultiCoil
+    test_transform:
+      class_path: data.CmrxReconDataTransform
+      init_args:
+        mask_func:
+          class_path: data.subsample.CmrxRecon25MaskFunc
+          init_args:
+            num_low_frequencies: 20
+            accelerations: [8, 16, 24]
+            num_adj_slices: 5
+            seed: 42
+            mask_acc: null  # Will be set via command line override
+        uniform_resolution: null
+        use_seed: true
+        mask_type: null  # Will be determined by mask_func
+        test_num_low_frequencies: 20
+    num_adj_slices: 5
+    batch_size: 1
+    distributed_sampler: true 
+    mask_acc: null  # Will be set via command line override
+
+# Filter to process all 55 samples across 6 centers
+# Remove or modify this filter to process all files
+    test_filter: 
+      class_path: data.FuncFilterString
+      init_args:
+        filter_str: null  # Process all files
+
+# Dataset specific settings
+seed_everything: 42
+trainer:
+  accelerator: gpu
+  strategy: ddp
+  devices: 1
+  num_nodes: 1
+  logger: false
+  callbacks:
+    -
+      class_path: __main__.CustomWriter
+      init_args:
+        output_dir: _predict/cmr25-cardiac/test_plus
+        write_interval: batch_and_epoch
+
+model:
+
+ckpt_path: /media/sbme26-600k/bitlocker_mount/CardiacCreed/Models/PromptMR-plus/weights/cmr24-cardiac/promptmr-plus-epoch=11-step=337764.ckpt
